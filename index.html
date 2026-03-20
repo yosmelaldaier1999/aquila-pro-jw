@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Aquila Pro JW FULL</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+body { font-family: Arial; background:#eef2f7; text-align:center; }
+.container { max-width:1000px; margin:auto; padding:20px; }
+button { padding:10px; margin:5px; background:#2c3e50; color:white; border:none; border-radius:5px; }
+table { width:100%; margin-top:20px; border-collapse:collapse; }
+td, th { border:1px solid #ccc; padding:8px; }
+th { background:#2c3e50; color:white; }
+input, select { padding:5px; width:100%; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>🟦 Aquila Pro JW FULL</h2>
+
+<input type="file" id="excelFile">
+<br>
+<button onclick="cargarExcel()">Cargar Excel</button>
+<button onclick="generarPrograma()">Generar Programa Completo</button>
+
+<h3>👥 Participantes</h3>
+<table id="tablaParticipantes">
+<thead>
+<tr>
+<th>Nombre</th>
+<th>Género</th>
+<th>Rol</th>
+<th>Familia</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<h3>📅 Programa</h3>
+<table id="tablaPrograma">
+<thead>
+<tr>
+<th>Parte</th>
+<th>Asignados</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+</div>
+
+<script>
+
+let participantes = [];
+let historialParejas = JSON.parse(localStorage.getItem("parejas") || "{}");
+
+function detectarGenero(nombre){
+  return nombre && nombre.toLowerCase().endsWith("a") ? "F" : "M";
+}
+
+function cargarExcel(){
+  const file = document.getElementById("excelFile").files[0];
+
+  if(!file){
+    alert("Selecciona un archivo primero");
+    return;
+  }
+
+  const reader = new FileReader();
+
+  reader.onload = function(e){
+    try{
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, {type:'array'});
+
+      const nombreHoja = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[nombreHoja];
+
+      const json = XLSX.utils.sheet_to_json(sheet);
+
+      if(json.length === 0){
+        alert("El Excel está vacío");
+        return;
+      }
+
+      participantes = json.map((row,i)=>{
+        let valores = Object.values(row);
+        let nombre = valores.find(v => typeof v === "string");
+
+        return {
+          id:i,
+          nombre:nombre || "Sin nombre",
+          genero: detectarGenero(nombre),
+          rol:"publicador",
+          familia:"",
+          ultima:0
+        }
+      });
+
+      renderParticipantes();
+
+      alert("✅ Participantes cargados: " + participantes.length);
+
+    }catch(error){
+      console.error(error);
+      alert("❌ Error al leer el Excel");
+    }
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+function renderParticipantes(){
+  let tbody = document.querySelector("#tablaParticipantes tbody");
+  tbody.innerHTML = "";
+
+  participantes.forEach((p,index)=>{
+    let tr = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td>
+        <input value="${p.nombre}" 
+        onchange="participantes[${index}].nombre=this.value">
+      </td>
+
+      <td>
+        <select onchange="participantes[${index}].genero=this.value">
+          <option value="M" ${p.genero=="M"?"selected":""}>M</option>
+          <option value="F" ${p.genero=="F"?"selected":""}>F</option>
+        </select>
+      </td>
+
+      <td>
+        <select onchange="participantes[${index}].rol=this.value">
+          <option value="publicador">Publicador</option>
+          <option value="no_bautizado">No bautizado</option>
+          <option value="ministerial">Ministerial</option>
+          <option value="anciano">Anciano</option>
+        </select>
+      </td>
+
+      <td>
+        <input placeholder="Ej: fam1"
+        value="${p.familia}"
+        onchange="participantes[${index}].familia=this.value">
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+function generarPrograma(){
+
+  if(participantes.length < 3){
+    alert("No hay suficientes participantes");
+    return;
+  }
+
+  let usados = [];
+  let programa = [];
+
+  function asignar(parte, lista){
+    if(!lista || lista.length === 0){
+      programa.push({parte, nombres:["⚠️ Sin asignar"]});
+      return;
+    }
+
+    usados.push(...lista.map(x=>x.id));
+    lista.forEach(x=>x.ultima=Date.now());
+
+    programa.push({
+      parte,
+      nombres: lista.map(x=>x.nombre)
+    });
+  }
+
+  function elegir(filtro){
+    let lista = participantes.filter(p=>!usados.includes(p.id));
+    if(filtro) lista = lista.filter(filtro);
+
+    lista.sort((a,b)=>a.ultima-b.ultima);
+    return lista[0];
+  }
+
+  function crearPareja(){
+    let disponibles = participantes.filter(p=>!usados.includes(p.id));
+
+    for(let i=0;i<disponibles.length;i++){
+      for(let j=i+1;j<disponibles.length;j++){
+
+        let p1 = disponibles[i];
+        let p2 = disponibles[j];
+
+        if(
+          p1.genero === p2.genero ||
+          (p1.familia && p1.familia === p2.familia)
+        ){
+          return [p1,p2];
+        }
+      }
+    }
+
+    return null;
+  }
+
+  // PROGRAMA
+  asignar("Oración inicial", [elegir(p=>p.genero=="M")]);
+  asignar("Lectura bíblica", [elegir(p=>p.genero=="M")]);
+
+  asignar("Primera conversación", crearPareja());
+  asignar("Revisita", crearPareja());
+  asignar("Curso bíblico", crearPareja());
+
+  asignar("Vida cristiana", [elegir()]);
+  asignar("Estudio congregación", [elegir(p=>p.rol!="no_bautizado")]);
+
+  asignar("Oración final", [elegir(p=>p.genero=="M")]);
+
+  renderPrograma(programa);
+}
+
+function renderPrograma(programa){
+  let tbody = document.querySelector("#tablaPrograma tbody");
+  tbody.innerHTML="";
+
+  programa.forEach(p=>{
+    let tr=document.createElement("tr");
+    tr.innerHTML=`<td>${p.parte}</td><td>${p.nombres.join(" + ")}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+</script>
+
+</body>
+</html>
