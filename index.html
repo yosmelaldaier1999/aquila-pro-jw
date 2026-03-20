@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Aquila Pro JW FINAL</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf"></script>
+
+<style>
+body { font-family: Arial; background:#f4f6f9; }
+.container { max-width:1000px; margin:auto; padding:20px; }
+button { padding:10px; margin:5px; background:#2c3e50; color:white; border:none; }
+table { width:100%; border-collapse:collapse; margin-top:20px;}
+td, th { border:1px solid #ccc; padding:8px;}
+th { background:#2c3e50; color:white;}
+input, select { width:100%; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>Aquila Pro JW FINAL</h2>
+
+<input type="file" id="excelFile">
+<button onclick="cargarExcel()">Cargar Excel</button>
+<button onclick="generarPrograma()">Generar Programa</button>
+<button onclick="generarPDF()">Generar S140 PDF</button>
+
+<h3>Participantes</h3>
+<table id="tablaParticipantes">
+<thead>
+<tr>
+<th>Nombre</th>
+<th>Género</th>
+<th>Rol</th>
+<th>Familia</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<h3>Programa</h3>
+<table id="tablaPrograma">
+<thead>
+<tr><th>Parte</th><th>Asignados</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+
+</div>
+
+<script>
+
+let participantes=[];
+let programa=[];
+
+function detectarGenero(n){return n?.toLowerCase().endsWith("a")?"F":"M";}
+
+function cargarExcel(){
+ const file=document.getElementById("excelFile").files[0];
+ const reader=new FileReader();
+
+ reader.onload=e=>{
+  const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+  const json=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+
+  participantes=json.map((r,i)=>{
+    let nombre=Object.values(r).find(v=>typeof v==="string");
+    return {id:i,nombre,genero:detectarGenero(nombre),rol:"publicador",familia:"",ultima:0}
+  });
+
+  renderParticipantes();
+ };
+
+ reader.readAsArrayBuffer(file);
+}
+
+function renderParticipantes(){
+ let tbody=document.querySelector("#tablaParticipantes tbody");
+ tbody.innerHTML="";
+
+ participantes.forEach((p,i)=>{
+  tbody.innerHTML+=`
+  <tr>
+  <td><input value="${p.nombre}" onchange="participantes[${i}].nombre=this.value"></td>
+  <td>
+  <select onchange="participantes[${i}].genero=this.value">
+  <option ${p.genero=="M"?"selected":""}>M</option>
+  <option ${p.genero=="F"?"selected":""}>F</option>
+  </select>
+  </td>
+  <td>
+  <select onchange="participantes[${i}].rol=this.value">
+  <option value="publicador">Publicador</option>
+  <option value="no_bautizado">No bautizado</option>
+  <option value="ministerial">Ministerial</option>
+  <option value="anciano">Anciano</option>
+  </select>
+  </td>
+  <td><input onchange="participantes[${i}].familia=this.value"></td>
+  </tr>`;
+ });
+}
+
+function elegir(filtro){
+ let lista=participantes.filter(p=>!p.usado);
+ if(filtro) lista=lista.filter(filtro);
+ lista.sort((a,b)=>a.ultima-b.ultima);
+ return lista[0];
+}
+
+function pareja(){
+ let lista=participantes.filter(p=>!p.usado);
+
+ for(let i=0;i<lista.length;i++){
+  for(let j=i+1;j<lista.length;j++){
+   let a=lista[i],b=lista[j];
+   if(a.genero==b.genero || (a.familia && a.familia==b.familia)){
+    return [a,b];
+   }
+  }
+ }
+ return null;
+}
+
+function usar(p){
+ p.forEach(x=>{x.usado=true;x.ultima=Date.now()});
+}
+
+function generarPrograma(){
+
+ participantes.forEach(p=>p.usado=false);
+ programa=[];
+
+ function add(parte,lista){
+  if(!lista){programa.push({parte,nombres:["⚠️"]});return;}
+  usar(lista);
+  programa.push({parte,nombres:lista.map(x=>x.nombre)});
+ }
+
+ add("Presidente",[elegir(p=>p.rol=="anciano")]);
+ add("Oración inicial",[elegir(p=>p.rol=="anciano")]);
+
+ add("Tesoros",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")]);
+ add("Perlas",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")]);
+
+ add("Lectura Biblia",[elegir(p=>p.genero=="M" && p.rol!="no_bautizado")]);
+
+ add("Primera conversación",pareja());
+ add("Revisita",pareja());
+ add("Curso",pareja());
+
+ add("Vida Cristiana",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")]);
+
+ let conductor=elegir(p=>p.rol=="anciano"||p.rol=="ministerial");
+ usar([conductor]);
+
+ let lector=elegir(p=>p.genero=="M" && p.rol!="no_bautizado");
+ usar([lector]);
+
+ programa.push({parte:"Estudio (Conductor/Lector)",nombres:[conductor?.nombre,lector?.nombre]});
+
+ add("Oración final",[elegir(p=>p.rol=="anciano")]);
+
+ renderPrograma();
+}
+
+function renderPrograma(){
+ let tbody=document.querySelector("#tablaPrograma tbody");
+ tbody.innerHTML="";
+ programa.forEach(p=>{
+  tbody.innerHTML+=`<tr><td>${p.parte}</td><td>${p.nombres.join(" + ")}</td></tr>`;
+ });
+}
+
+function generarPDF(){
+ const {jsPDF}=window.jspdf;
+ let doc=new jsPDF();
+
+ let y=10;
+ doc.text("PROGRAMA S-140",10,y);
+ y+=10;
+
+ programa.forEach(p=>{
+  doc.text(p.parte+": "+p.nombres.join(", "),10,y);
+  y+=8;
+ });
+
+ doc.save("S140.pdf");
+}
+
+</script>
+
+</body>
+</html>
