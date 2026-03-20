@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Aquila Pro JW FINAL PRO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas"></script>
+
+<style>
+body { font-family: Arial; background:#f4f6f9; }
+.container { max-width:1000px; margin:auto; padding:20px; }
+button { padding:10px; margin:5px; background:#2c3e50; color:white; border:none; }
+table { width:100%; border-collapse:collapse; margin-top:20px;}
+td, th { border:1px solid #ccc; padding:8px;}
+th { background:#2c3e50; color:white;}
+input, select { width:100%; }
+
+/* S140 estilo */
+#s140 {
+  background:white;
+  padding:20px;
+  margin-top:30px;
+  border:1px solid #000;
+}
+.titulo { text-align:center; font-weight:bold; }
+.section { margin-top:15px; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>🟦 Aquila Pro JW FINAL PRO</h2>
+
+<input type="file" id="excelFile">
+<button onclick="cargarExcel()">Cargar Excel</button>
+<button onclick="generarPrograma()">Generar Programa</button>
+<button onclick="guardarTodo()">Guardar</button>
+<button onclick="generarPDF()">Exportar S140 PDF</button>
+
+<h3>Participantes</h3>
+<table id="tablaParticipantes">
+<thead>
+<tr>
+<th>Nombre</th>
+<th>Género</th>
+<th>Rol</th>
+<th>Familia</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<div id="s140">
+<div class="titulo">PROGRAMA REUNIÓN VIDA Y MINISTERIO</div>
+
+<div id="contenidoS140"></div>
+</div>
+
+</div>
+
+<script>
+
+let participantes = JSON.parse(localStorage.getItem("participantes")||"[]");
+let programa = JSON.parse(localStorage.getItem("programa")||"[]");
+
+function guardarTodo(){
+  localStorage.setItem("participantes",JSON.stringify(participantes));
+  localStorage.setItem("programa",JSON.stringify(programa));
+  alert("✅ Guardado correctamente");
+}
+
+function detectarGenero(n){return n?.toLowerCase().endsWith("a")?"F":"M";}
+
+function cargarExcel(){
+ const file=document.getElementById("excelFile").files[0];
+ const reader=new FileReader();
+
+ reader.onload=e=>{
+  const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+  const json=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+
+  participantes=json.map((r,i)=>{
+    let nombre=Object.values(r).find(v=>typeof v==="string");
+    return {id:i,nombre,genero:detectarGenero(nombre),rol:"publicador",familia:"",ultima:0}
+  });
+
+  renderParticipantes();
+ };
+
+ reader.readAsArrayBuffer(file);
+}
+
+function renderParticipantes(){
+ let tbody=document.querySelector("#tablaParticipantes tbody");
+ tbody.innerHTML="";
+
+ participantes.forEach((p,i)=>{
+  tbody.innerHTML+=`
+  <tr>
+  <td><input value="${p.nombre}" onchange="update(${i},'nombre',this.value)"></td>
+  <td>
+  <select onchange="update(${i},'genero',this.value)">
+  <option ${p.genero=="M"?"selected":""}>M</option>
+  <option ${p.genero=="F"?"selected":""}>F</option>
+  </select>
+  </td>
+  <td>
+  <select onchange="update(${i},'rol',this.value)">
+  <option value="publicador">Publicador</option>
+  <option value="no_bautizado">No bautizado</option>
+  <option value="ministerial">Ministerial</option>
+  <option value="anciano">Anciano</option>
+  </select>
+  </td>
+  <td><input value="${p.familia}" onchange="update(${i},'familia',this.value)"></td>
+  </tr>`;
+ });
+}
+
+function update(i,key,val){
+ participantes[i][key]=val;
+ guardarTodo();
+}
+
+function elegir(filtro){
+ let lista=participantes.filter(p=>!p.usado);
+ if(filtro) lista=lista.filter(filtro);
+ lista.sort((a,b)=>a.ultima-b.ultima);
+ return lista[0];
+}
+
+function pareja(){
+ let lista=participantes.filter(p=>!p.usado);
+
+ for(let i=0;i<lista.length;i++){
+  for(let j=i+1;j<lista.length;j++){
+   let a=lista[i],b=lista[j];
+   if(a.genero==b.genero || (a.familia && a.familia==b.familia)){
+    return [a,b];
+   }
+  }
+ }
+ return null;
+}
+
+function usar(p){
+ p.forEach(x=>{x.usado=true;x.ultima=Date.now()});
+}
+
+function generarPrograma(){
+
+ participantes.forEach(p=>p.usado=false);
+ programa=[];
+
+ function add(parte,lista){
+  if(!lista){programa.push({parte,nombres:["⚠️"]});return;}
+  usar(lista);
+  programa.push({parte,nombres:lista.map(x=>x.nombre)});
+ }
+
+ add("Presidente",[elegir(p=>p.rol=="anciano")]);
+ add("Oración inicial",[elegir(p=>p.rol=="anciano")]);
+ add("Tesoros de la Biblia",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")]);
+ add("Perlas escondidas",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")]);
+ add("Lectura de la Biblia",[elegir(p=>p.genero=="M" && p.rol!="no_bautizado")]);
+ add("Primera conversación",pareja());
+ add("Revisita",pareja());
+ add("Curso bíblico",pareja());
+ add("Nuestra vida cristiana",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")]);
+
+ let c=elegir(p=>p.rol=="anciano"||p.rol=="ministerial");
+ usar([c]);
+ let l=elegir(p=>p.genero=="M" && p.rol!="no_bautizado");
+ usar([l]);
+
+ programa.push({parte:"Estudio congregación",nombres:[c?.nombre,l?.nombre]});
+ add("Oración final",[elegir(p=>p.rol=="anciano")]);
+
+ guardarTodo();
+ renderS140();
+}
+
+function renderS140(){
+ let div=document.getElementById("contenidoS140");
+ div.innerHTML="";
+
+ programa.forEach(p=>{
+  div.innerHTML+=`<div class="section"><b>${p.parte}</b>: ${p.nombres.join(" + ")}</div>`;
+ });
+}
+
+function generarPDF(){
+ html2canvas(document.getElementById("s140")).then(canvas=>{
+  const img=canvas.toDataURL("image/png");
+  const {jsPDF}=window.jspdf;
+  let pdf=new jsPDF();
+  pdf.addImage(img,'PNG',0,0,210,297);
+  pdf.save("S140.pdf");
+ });
+}
+
+// cargar datos guardados al iniciar
+renderParticipantes();
+renderS140();
+
+</script>
+
+</body>
+</html>
