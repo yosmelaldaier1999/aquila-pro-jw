@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Aquila PRO JW FINAL</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf"></script>
+
+<style>
+body { font-family: Arial; background:#f4f6f9; }
+.container { max-width:1000px; margin:auto; padding:20px; }
+button { padding:10px; margin:5px; background:#2c3e50; color:white; border:none; }
+
+.semana {
+  background:white;
+  padding:20px;
+  margin-top:20px;
+  border:1px solid #000;
+}
+
+input, select { width:100%; margin-top:5px; }
+table { width:100%; border-collapse:collapse; }
+td, th { border:1px solid #ccc; padding:5px; }
+
+.titulo { text-align:center; font-weight:bold; }
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h2>🟦 Aquila PRO JW FINAL</h2>
+
+<input type="file" id="excelFile">
+<button onclick="cargarExcel()">Cargar Excel</button>
+<button onclick="generarMes()">Generar Mes JW</button>
+<button onclick="exportarPDF()">Exportar PDF</button>
+
+<h3>📥 Importar Semana JW</h3>
+<input id="fecha" placeholder="Ej: 1-7 Enero">
+<input id="lectura" placeholder="Lectura bíblica">
+<input id="tema" placeholder="Tema principal">
+<button onclick="agregarSemanaJW()">Agregar Semana</button>
+
+<h3>Participantes</h3>
+<table id="tablaParticipantes">
+<thead>
+<tr>
+<th>Nombre</th>
+<th>Género</th>
+<th>Rol</th>
+<th>Familia</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<div id="mes"></div>
+
+</div>
+
+<script>
+
+let participantes = JSON.parse(localStorage.getItem("p")||"[]");
+let mes = JSON.parse(localStorage.getItem("mes")||"[]");
+let semanasJW = JSON.parse(localStorage.getItem("jw")||"[]");
+
+function guardar(){
+ localStorage.setItem("p",JSON.stringify(participantes));
+ localStorage.setItem("mes",JSON.stringify(mes));
+ localStorage.setItem("jw",JSON.stringify(semanasJW));
+}
+
+function detectarGenero(n){return n?.toLowerCase().endsWith("a")?"F":"M";}
+
+function cargarExcel(){
+ const file=document.getElementById("excelFile").files[0];
+ const reader=new FileReader();
+
+ reader.onload=e=>{
+  const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+  const json=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+
+  participantes=json.map((r,i)=>{
+    let nombre=Object.values(r).find(v=>typeof v==="string");
+    return {id:i,nombre,genero:detectarGenero(nombre),rol:"publicador",familia:"",uso:0}
+  });
+
+  renderParticipantes();
+ };
+
+ reader.readAsArrayBuffer(file);
+}
+
+function renderParticipantes(){
+ let tbody=document.querySelector("#tablaParticipantes tbody");
+ tbody.innerHTML="";
+
+ participantes.forEach((p,i)=>{
+  tbody.innerHTML+=`
+  <tr>
+  <td><input value="${p.nombre}" onchange="update(${i},'nombre',this.value)"></td>
+  <td>
+  <select onchange="update(${i},'genero',this.value)">
+  <option ${p.genero=="M"?"selected":""}>M</option>
+  <option ${p.genero=="F"?"selected":""}>F</option>
+  </select>
+  </td>
+  <td>
+  <select onchange="update(${i},'rol',this.value)">
+  <option value="publicador">Publicador</option>
+  <option value="no_bautizado">No bautizado</option>
+  <option value="ministerial">Ministerial</option>
+  <option value="anciano">Anciano</option>
+  </select>
+  </td>
+  <td><input value="${p.familia}" onchange="update(${i},'familia',this.value)"></td>
+  </tr>`;
+ });
+}
+
+function update(i,k,v){
+ participantes[i][k]=v;
+ guardar();
+}
+
+function agregarSemanaJW(){
+ let semana = {
+  semana: document.getElementById("fecha").value,
+  lectura: document.getElementById("lectura").value,
+  tema: document.getElementById("tema").value
+ };
+
+ semanasJW.push(semana);
+ guardar();
+ alert("✅ Semana agregada");
+}
+
+function generarHorario(){
+ let hora = 19*60 + 30;
+
+ function h(min){
+  let hh=Math.floor(min/60);
+  let mm=min%60;
+  return `${hh}:${mm.toString().padStart(2,"0")}`;
+ }
+
+ return {
+  inicio: h(hora),
+  tesoros: h(hora+=10),
+  perlas: h(hora+=10),
+  lectura: h(hora+=4),
+  ministerio: h(hora+=15),
+  vida: h(hora+=15),
+  estudio: h(hora+=30)
+ };
+}
+
+function elegir(f){
+ let lista=participantes.filter(p=>!p.usado);
+ if(f) lista=lista.filter(f);
+ lista.sort((a,b)=>a.uso-b.uso);
+ let e=lista[0];
+ if(e) e.uso++;
+ return e;
+}
+
+function pareja(){
+ let l=participantes.filter(p=>!p.usado);
+ for(let i=0;i<l.length;i++){
+  for(let j=i+1;j<l.length;j++){
+   let a=l[i],b=l[j];
+   if(a.genero==b.genero || (a.familia && a.familia==b.familia)){
+    return [a,b];
+   }
+  }
+ }
+ return null;
+}
+
+function generarSemana(info){
+ participantes.forEach(p=>p.usado=false);
+
+ let prog=[];
+ let t = generarHorario();
+
+ function add(parte,lista,hora){
+  if(!lista){prog.push({parte,nombres:["⚠️"],hora});return;}
+  lista.forEach(x=>x.usado=true);
+  prog.push({parte,nombres:lista.map(x=>x.nombre),hora});
+ }
+
+ add("Presidente",[elegir(p=>p.rol=="anciano")],t.inicio);
+ add("Oración inicial",[elegir(p=>p.rol=="anciano")],t.inicio);
+ add("Tesoros",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")],t.tesoros);
+ add("Perlas",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")],t.perlas);
+ add("Lectura Biblia",[elegir(p=>p.genero=="M" && p.rol!="no_bautizado")],t.lectura);
+
+ add("Primera conversación",pareja(),t.ministerio);
+ add("Revisita",pareja(),t.ministerio);
+ add("Curso",pareja(),t.ministerio);
+
+ add("Vida Cristiana",[elegir(p=>p.rol=="anciano"||p.rol=="ministerial")],t.vida);
+
+ let c=elegir(p=>p.rol=="anciano"||p.rol=="ministerial");
+ let l=elegir(p=>p.genero=="M" && p.rol!="no_bautizado");
+
+ prog.push({parte:"Estudio congregación",nombres:[c?.nombre,l?.nombre],hora:t.estudio});
+
+ add("Oración final",[elegir(p=>p.rol=="anciano")],t.estudio);
+
+ return {...info, programa:prog};
+}
+
+function generarMes(){
+ let base = semanasJW.length ? semanasJW : [
+  {semana:"Semana 1", lectura:"-"},
+  {semana:"Semana 2", lectura:"-"},
+  {semana:"Semana 3", lectura:"-"},
+  {semana:"Semana 4", lectura:"-"}
+ ];
+
+ mes=base.map(s=>generarSemana(s));
+ guardar();
+ renderMes();
+}
+
+function renderMes(){
+ let div=document.getElementById("mes");
+ div.innerHTML="";
+
+ mes.forEach((s,i)=>{
+  let html=`<div class="semana" id="semana${i}">
+  <div class="titulo">SEMANA ${s.semana}</div>
+  <div>Lectura: ${s.lectura}</div><hr>`;
+
+  s.programa.forEach(p=>{
+    html+=`<div><b>${p.parte}</b> (${p.hora}): ${p.nombres.join(" + ")}</div>`;
+  });
+
+  html+="</div>";
+  div.innerHTML+=html;
+ });
+}
+
+async function exportarPDF(){
+
+ const {jsPDF}=window.jspdf;
+ let pdf=new jsPDF("p","mm","letter");
+
+ for(let i=0;i<mes.length;i++){
+  let el=document.getElementById("semana"+i);
+
+  let canvas=await html2canvas(el,{scale:3});
+  let img=canvas.toDataURL("image/png");
+
+  let width=216;
+  let height=canvas.height * width / canvas.width;
+
+  if(i>0) pdf.addPage();
+  pdf.addImage(img,"PNG",0,0,width,height);
+ }
+
+ pdf.save("S140_Mes.pdf");
+}
+
+renderParticipantes();
+renderMes();
+
+</script>
+
+</body>
+</html>
